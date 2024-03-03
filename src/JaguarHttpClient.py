@@ -493,7 +493,7 @@ class JaguarHttpClient():
             tp = col['type']
             if tp == 'str':
                 size = col['size'] 
-                c = name + ' str(' + size + ')'
+                c = name + ' char(' + size + ')'
             elif tp == 'vector':
                 continue
             else:
