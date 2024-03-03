@@ -39,7 +39,7 @@ class JaguarHttpClient():
 
         params = { "req": "login", "apikey": apikey }
         response = requests.get(self.url, params=params)
-        print(f"in login() apikey={apikey}  response ={response}")
+        #print(f"in login() apikey={apikey}  response ={response}")
         if response.status_code == 200:
             json_data = json.loads(response.text)
             token = json_data['access_token']
@@ -191,7 +191,7 @@ class JaguarHttpClient():
         podstore = pod + '.' + store
 
         qs = "create store " + podstore + "(" + columns + ")"
-        print(f"createStore qs={qs}")
+        #print(f"createStore qs={qs}")
 
         resp = self.post(qs, self.token)
         if resp.status_code == 200:
@@ -199,11 +199,32 @@ class JaguarHttpClient():
         return False
 
     '''
-    insert data
+    add data collection to store
     '''
-    def insertData(self, pod, store, tensors, scalars ):
+    def add(self, pod, store, files, tensors, scalars ):
+        """
+        write data to store
+        Args:
+            files: [{"filepath": "/tmp/a/b/a.jpg", "position": 1}, {"filepath": "/tmp/a/b/b.jpg", "position": 4}]
+                    filepath is full file path, 1 and 4 are column positions of the file columns.
+                    You can attach multiple files in a collection.
+
+            tensors: list of embeddings for all vector columns [[....], [....]]
+            scalars: list of values for non-vector columns
+        Returns:
+            {} for invalid token, or
+            json result string
+        """
 
         podstore = pod + '.' + store
+
+        withFile = False
+        for filedict in files:
+            fpath = filedict['filepath']
+            position = filedict['position']
+            rc = self.postFile(token, fpath, position )
+            #print(f"postFile {fpath} rc={rc}")
+            withFile = True
 
         data_list = []
         for vec in tensors:
@@ -215,14 +236,14 @@ class JaguarHttpClient():
 
         ins = ",".join(data_list)
 
-        print(f"insertData ins={ins}")
+        #print(f"add ins={ins}")
 
         qs = "insert into " + podstore + " values (" + ins + ")"
-        print(f"insertData qs={qs}")
+        #print(f"insert stmt qs={qs}")
 
-        resp = self.post(qs, self.token)
-        print(resp)
-        print(resp.text)
+        resp = self.post(qs, self.token, withFile)
+        #print(f"post resp={resp}")
+        #print(f"resp.text={resp.text}")
 
         if resp.status_code != 200:
             return ''
@@ -554,6 +575,16 @@ class JaguarHttpClient():
 
         return False
 
+    '''
+    get file from files for the colidx
+    '''
+    def _pickFileName(self, files, colidx):
+        for filedict in files:
+            fpath = filedict['filepath']
+            position = filedict['position']
+            if colidx == position:
+                return fpath
+        return ''
 
 ### example test program
 if __name__ == "__main__":
@@ -593,23 +624,33 @@ if __name__ == "__main__":
     print(f"create store {response.text}", flush=True)
 
 
-    imgfile = '/tmp/test1.jpg';
-    if not os.path.isfile(imgfile):
-        print(f"imgfile {imgfile} does not exist, you must create it first")
+    imgfile1 = '../test/test1.jpg';
+    if not os.path.isfile(imgfile1):
+        print(f"imgfile {imgfile1} does not exist, you must create it first")
+        exit(1)
+
+    imgfile2 = '../test/test2.jpg';
+    if not os.path.isfile(imgfile2):
+        print(f"imgfile {imgfile2} does not exist, you must create it first")
+        exit(1)
+
+    imgfile3 = '../test/test3.jpg';
+    if not os.path.isfile(imgfile3):
+        print(f"imgfile {imgfile3} does not exist, you must create it first")
         exit(1)
 
 
     ### upload file for v:f which is at position 2 
-    rc = jag.postFile(token, '/tmp/test1.jpg', 2 )
-    print(f"postFile /tmp/test1.jpg {rc}")
+    rc = jag.postFile(token, imgfile1, 2 )
+    print(f"postFile {imgfile1} {rc}")
 
-    q = f"insert into vdb.week values ('0.1,0.2,0.3,0.4,0.5,0.02,0.3,0.5', '{imgfile}', 'this is text description: market rebounce', 10 )"
+    q = f"insert into vdb.week values ('0.1,0.2,0.3,0.4,0.5,0.02,0.3,0.5', '{imgfile1}', 'this is text description: windy ', 10 )"
     response = jag.post(q, token, True)
     print(f"insert response.text {response.text}")
     jd = json.loads(response.text)
     print(f"insert zid = {jd['zid']}")
 
-    q = f"insert into vdb.week values ('0.5,0.2,0.5,0.4,0.1,0.02,0.3,0.7', '{imgfile}', 'this is text description: market saturation', 100 )"
+    q = f"insert into vdb.week values ('0.5,0.2,0.5,0.4,0.1,0.02,0.3,0.7', '{imgfile2}', 'this is text description: sunny', 100 )"
     response = jag.post(q, token, True)
     print(f"insert response.text {response.text}", flush=True)
     jd = json.loads(response.text)
@@ -635,13 +676,16 @@ if __name__ == "__main__":
         print(f"file url={furl}", flush=True)
 
     
-    ### create, insert, select with new API
+    ########################### new API 3/3/2024 ######################################################################
+    ### create, add, select with new API
     schema = {
         "pod": "vdb",
         "store": "mystoreapi",
         "columns": [
             {"name": "vec", "type": "vector", "dim":"3", "dist":"euclidean", "input":"fraction", "quantization":"float"},
             {"name": "vec:text", "type": "str", "size": "1024"},
+            {"name": "vec:img1", "type": "file" },
+            {"name": "vec:img2", "type": "file" },
             {"name": "path", "type": "str", "size": "64"},
             {"name": "tms", "type": "datetimesec" },
             {"name": "seq", "type": "bigint" },
@@ -656,16 +700,18 @@ if __name__ == "__main__":
     print(f"createStore rc={rc}")
 
     ### insert one collection
+    files = [{"filepath": "../test/test1.jpg", "position": 3}, {"filepath": "../test/test2.jpg", "position": 4}]
     tensors = [['0.2', '0.3', '0.51']]
-    scalars = ['first product description', '/path/123/f2', '2024-02-09 11:21:32', '1000', '8']
-    zid = jag.insertData("vdb", "mystoreapi", tensors, scalars )
-    print(f"insertData zid={zid}")
+    scalars = ['first product description', '../test/test1.jpg', '../test/test2.jpg', '/path/123/d1', '2024-02-09 11:21:32', '1001', '8']
+    zid = jag.add("vdb", "mystoreapi", files, tensors, scalars )
+    print(f"insert zid={zid}")
 
     ### insert another collection
+    files = [{"filepath": "../test/test3.jpg", "position": 3}, {"filepath": "../test/test4.jpg", "position": 4}]
     tensors = [['0.1', '0.5', '0.71']]
-    scalars = ['a second product description ', '/path/123/f2', '2024-02-12 15:21:32', '1002', '9']
-    zid = jag.insertData("vdb", "mystoreapi", tensors, scalars )
-    print(f"insertData zid={zid}")
+    scalars = ['second product description ', '../test/test3.jpg', '../test/test4.jpg', '/path/234/d2', '2024-02-12 15:21:32', '1002', '9']
+    zid = jag.add("vdb", "mystoreapi", files, tensors, scalars )
+    print(f"add zid={zid}")
 
 
     embeddings = ['0.2', '0.4', '0.31']
@@ -680,7 +726,8 @@ if __name__ == "__main__":
     ### initial search base is fetch_k=100 then narrows down to topk=3
     where = "num='9'"
     metadatas = ['seq', 'num', 'tms']
-    docs = jag.search( "vdb", "mystoreapi", "vec", "euclidean_fraction_float", embeddings, fetch_k=100, topk=3, where=where, metadatas=metadatas )
+    docs = jag.search( "vdb", "mystoreapi", "vec", "euclidean_fraction_float", embeddings, 
+                       fetch_k=100, topk=3, where=where, metadatas=metadatas )
     print(f"search3 docs={docs}")
 
     jag.logout(token)
