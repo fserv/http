@@ -222,13 +222,13 @@ class JaguarHttpClient():
         for filedict in files:
             fpath = filedict['filepath']
             position = filedict['position']
-            rc = self.postFile(token, fpath, position )
+            rc = self.postFile(self.token, fpath, position )
             #print(f"postFile {fpath} rc={rc}")
             withFile = True
 
         data_list = []
         for vec in tensors:
-            s = ",".join(vec)
+            s = ",".join([str(e) for e in vec])
             data_list.append( "'" + s + "'")
 
         for s in scalars:
